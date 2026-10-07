@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from 'react';
+import { lazy, Suspense, useLayoutEffect, useRef } from 'react';
 import { Link, Route, Routes, useLocation } from 'react-router-dom';
 import { Footer } from './components/Footer';
 import { Navbar } from './components/Navbar';
@@ -18,21 +18,66 @@ const StaffDashboard = lazy(() => import('./pages/StaffDashboard'));
 const AdminPage = lazy(() => import('./pages/admin/AdminPage'));
 const BranchManage = lazy(() => import('./pages/admin/BranchManage'));
 
+/**
+ * Scroll position that puts a section's content (ignoring its top padding) in the middle of the
+ * space under the sticky header — or just under the header when the content is taller than that.
+ */
+function sectionScrollTop(el: HTMLElement) {
+  const header = document.querySelector('header')?.getBoundingClientRect().height ?? 0;
+  const padTop = parseFloat(getComputedStyle(el).paddingTop) || 0;
+  const rect = el.getBoundingClientRect();
+  const height = rect.height - padTop;
+  const room = window.innerHeight - header;
+  const gap = height < room ? (room - height) / 2 : 16;
+  return Math.max(0, window.scrollY + rect.top + padTop - header - gap);
+}
+
 /** Scroll to top on navigation, or to the #anchor when there is one. */
 function ScrollManager() {
   const { pathname, hash, key } = useLocation();
+  const lastPath = useRef(pathname);
+
+  // Layout effects + 'instant' so a new page is already at the right place when it first paints
+  // (the CSS `scroll-behavior: smooth` would otherwise animate from the old page's position).
 
   // New page (no anchor) → back to the top. Query-string changes (tabs) keep the position.
-  useEffect(() => {
-    if (!hash) window.scrollTo({ top: 0 });
+  useLayoutEffect(() => {
+    if (!hash) window.scrollTo({ top: 0, behavior: 'instant' });
   }, [pathname, hash]);
 
   // Anchor links (/#about, /#branches): `key` changes on every click, so clicking the
   // same link again after scrolling away still scrolls back to the section.
-  useEffect(() => {
+  useLayoutEffect(() => {
+    const samePage = lastPath.current === pathname;
+    lastPath.current = pathname;
     if (!hash) return;
-    const id = window.setTimeout(() => document.getElementById(hash.slice(1))?.scrollIntoView({ behavior: 'smooth' }), 60);
-    return () => window.clearTimeout(id);
+    const id = decodeURIComponent(hash.slice(1));
+    // Already on the page → glide to the section. Coming from another page → open right at it.
+    const behavior: ScrollBehavior = samePage ? 'smooth' : 'instant';
+    let lastTop = -1;
+    const go = () => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const top = sectionScrollTop(el);
+      if (Math.abs(top - lastTop) < 1) return;
+      lastTop = top;
+      window.scrollTo({ top, behavior });
+    };
+    go();
+
+    // Coming from another page, the sections above (branches, images) are still loading and push
+    // the target down. Follow it while the page grows, until it settles or the user scrolls.
+    const ro = new ResizeObserver(go);
+    ro.observe(document.body);
+    const stop = () => ro.disconnect();
+    const timer = window.setTimeout(stop, 2500);
+    const userEvents = ['wheel', 'touchstart', 'keydown'] as const;
+    userEvents.forEach((e) => window.addEventListener(e, stop, { passive: true, once: true }));
+    return () => {
+      stop();
+      window.clearTimeout(timer);
+      userEvents.forEach((e) => window.removeEventListener(e, stop));
+    };
   }, [pathname, hash, key]);
 
   return null;

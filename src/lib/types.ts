@@ -28,6 +28,9 @@ export interface Branch {
   address_ar: string;
   hours_en: string;
   hours_ar: string;
+  /** 'HH:MM:SS' Egypt time; closes_at < opens_at = closes after midnight; equal = 24h; null = not set */
+  opens_at: string | null;
+  closes_at: string | null;
   phone: string;
   map_url: string;
   image_url: string | null;
@@ -136,4 +139,6 @@ export interface SiteSettings {
   ticker_enabled: boolean;
   /** 1 = very slow … 5 = very fast */
   ticker_speed: number;
+  /** seconds each home-page advertisement is shown */
+  ad_interval: number;
 }

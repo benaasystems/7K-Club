@@ -1,4 +1,5 @@
-import { useEffect, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Loader2, X } from 'lucide-react';
 import { useI18n } from '../i18n/I18nProvider';
 import type { Status } from '../lib/types';
@@ -35,6 +36,29 @@ export function Alert({ kind = 'error', children }: { kind?: 'error' | 'success'
   return <div className={cn('rounded-xl border px-4 py-3 text-sm', styles)}>{children}</div>;
 }
 
+/** "Saved ✓" shown right next to a Save button, where the user is looking after clicking it. */
+export function SavedNote({ show }: { show: boolean }) {
+  const { t } = useI18n();
+  return (
+    <span role="status" className="text-sm font-medium text-emerald-300">
+      {show && <span className="inline-block animate-fade-up-fast motion-reduce:animate-none">{t('admin.saved')}</span>}
+    </span>
+  );
+}
+
+/** A flag that turns itself off after `ms` — for short-lived confirmations like "Saved ✓". */
+export function useFlash(ms = 3000) {
+  const [count, setCount] = useState(0);
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    if (!count) return;
+    setOn(true);
+    const id = window.setTimeout(() => setOn(false), ms);
+    return () => window.clearTimeout(id);
+  }, [count, ms]);
+  return { on, flash: () => setCount((c) => c + 1), hide: () => setOn(false) };
+}
+
 export function StatusBadge({ status }: { status: Status }) {
   const { t } = useI18n();
   const styles: Record<Status, string> = {
@@ -60,17 +84,46 @@ export function Tabs<T extends string>({
   onChange: (v: T) => void;
   options: { value: T; label: ReactNode }[];
 }) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const [pill, setPill] = useState<{ left: number; width: number } | null>(null);
+
+  // The gold pill is one element that slides to the active tab instead of jumping between buttons.
+  // Re-measured on resize too, since labels change width with the language.
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const measure = () => {
+      const active = list.querySelector<HTMLElement>('[aria-selected="true"]');
+      setPill(active ? { left: active.offsetLeft, width: active.offsetWidth } : null);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(list);
+    return () => ro.disconnect();
+  }, [value]);
+
   return (
     <div className="no-scrollbar -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
-      <div className="inline-flex gap-1 rounded-2xl border border-white/10 bg-white/[0.03] p-1">
+      <div ref={listRef} role="tablist" className="relative inline-flex gap-1 rounded-2xl border border-white/10 bg-white/[0.03] p-1">
+        {pill && (
+          <span
+            aria-hidden
+            className="absolute inset-y-1 rounded-xl bg-gold-400 shadow transition-[left,width] duration-300 ease-out motion-reduce:transition-none"
+            style={{ left: pill.left, width: pill.width }}
+          />
+        )}
         {options.map((o) => (
           <button
             key={o.value}
             type="button"
+            role="tab"
+            aria-selected={value === o.value}
             onClick={() => onChange(o.value)}
             className={cn(
-              'flex items-center gap-2 whitespace-nowrap rounded-xl px-4 py-2 text-sm font-semibold transition',
-              value === o.value ? 'bg-gold-400 text-ink-950 shadow' : 'text-white/60 hover:bg-white/5 hover:text-white',
+              'relative flex items-center gap-2 whitespace-nowrap rounded-xl px-4 py-2 text-sm font-semibold transition-colors duration-300',
+              value === o.value
+                ? cn('text-ink-950', !pill && 'bg-gold-400 shadow')
+                : 'text-white/60 hover:bg-white/5 hover:text-white',
             )}
           >
             {o.label}
@@ -107,7 +160,9 @@ export function Modal({
   }, [open, onClose]);
 
   if (!open) return null;
-  return (
+  // Portalled to <body>: an animated/transformed ancestor would otherwise become the containing
+  // block for `position: fixed`, trapping the modal inside it (cut off, impossible to scroll).
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
       <div
@@ -130,8 +185,50 @@ export function Modal({
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
+}
+
+export interface ConfirmOptions {
+  title: string;
+  message?: ReactNode;
+  confirmLabel: string;
+  cancelLabel?: string;
+  /** Red confirm button, for deleting / cancelling. */
+  danger?: boolean;
+}
+
+/**
+ * Themed replacement for window.confirm():
+ *   const [confirm, confirmDialog] = useConfirm();
+ *   if (!(await confirm({ title, message, confirmLabel, danger: true }))) return;
+ *   …and render {confirmDialog} somewhere in the component.
+ */
+export function useConfirm() {
+  const { t } = useI18n();
+  const [state, setState] = useState<{ opts: ConfirmOptions; resolve: (ok: boolean) => void } | null>(null);
+  const confirm = useCallback((opts: ConfirmOptions) => new Promise<boolean>((resolve) => setState({ opts, resolve })), []);
+  const close = (ok: boolean) => {
+    state?.resolve(ok);
+    setState(null);
+  };
+
+  const dialog = state && (
+    <Modal open onClose={() => close(false)} title={state.opts.title}>
+      {state.opts.message && <div className="-mt-2 text-sm leading-relaxed text-white/65">{state.opts.message}</div>}
+      <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <button type="button" className="btn-ghost" onClick={() => close(false)}>
+          {state.opts.cancelLabel ?? t('admin.cancel')}
+        </button>
+        <button type="button" autoFocus className={state.opts.danger ? 'btn-danger' : 'btn-primary'} onClick={() => close(true)}>
+          {state.opts.confirmLabel}
+        </button>
+      </div>
+    </Modal>
+  );
+
+  return [confirm, dialog] as const;
 }
 
 export function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {

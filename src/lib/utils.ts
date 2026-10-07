@@ -18,20 +18,54 @@ export function money(value: number, lang: Lang) {
   return lang === 'ar' ? `${n} ج.م` : `EGP ${n}`;
 }
 
+/**
+ * Every branch is in Egypt, so booking times are shown and entered in Egypt time whatever
+ * the visitor's device is set to. The database checks opening hours in the same zone.
+ */
+export const CLUB_TZ = 'Africa/Cairo';
+
 export function formatDateTime(iso: string, lang: Lang) {
-  return new Intl.DateTimeFormat(lang === 'ar' ? 'ar-EG' : 'en-GB', {
-    weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit',
+  return new Intl.DateTimeFormat(lang === 'ar' ? 'ar-EG' : 'en-US', {
+    weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: CLUB_TZ,
   }).format(new Date(iso));
 }
 
 export function formatTime(iso: string | Date, lang: Lang) {
-  return new Intl.DateTimeFormat(lang === 'ar' ? 'ar-EG' : 'en-GB', { hour: 'numeric', minute: '2-digit' }).format(new Date(iso));
+  return new Intl.DateTimeFormat(lang === 'ar' ? 'ar-EG' : 'en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: CLUB_TZ }).format(new Date(iso));
 }
 
-/** yyyy-mm-dd in local time */
-export function toDateInput(d: Date) {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+/** Minutes after midnight (may exceed 1440 for the next day) as a 12-hour clock time, e.g. 750 → "12:30 PM". */
+export function formatClock(minutes: number, lang: Lang) {
+  const m = ((minutes % 1440) + 1440) % 1440;
+  return new Intl.DateTimeFormat(lang === 'ar' ? 'ar-EG' : 'en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'UTC' }).format(
+    Date.UTC(2000, 0, 1, Math.floor(m / 60), m % 60),
+  );
+}
+
+/** Egypt-time offset from UTC (ms) at a given instant. */
+function clubOffset(at: number) {
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: CLUB_TZ, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric',
+    })
+      .formatToParts(at)
+      .map((x) => [x.type, Number(x.value)]),
+  );
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - at;
+}
+
+/** The instant for `minutes` after midnight (Egypt time) on yyyy-mm-dd `date`; minutes ≥ 1440 roll into the next day. */
+export function clubDate(date: string, minutes: number) {
+  const [y, mo, d] = date.split('-').map(Number);
+  const wall = Date.UTC(y, mo - 1, d, 0, minutes);
+  // Two passes so a daylight-saving change between the guess and the answer is handled.
+  const first = wall - clubOffset(wall);
+  return new Date(wall - clubOffset(first));
+}
+
+/** Today's date (yyyy-mm-dd) in Egypt. */
+export function clubToday() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: CLUB_TZ }).format(new Date());
 }
 
 /** Upload an image to a public bucket and return its public URL. */
@@ -46,6 +80,7 @@ export async function uploadImage(bucket: 'avatars' | 'media', folder: string, f
 const KNOWN_ERRORS = [
   'SLOT_TAKEN', 'BOOKING_IN_PAST', 'BOOKING_TOO_LONG', 'TOO_MANY_GUESTS', 'RESOURCE_UNAVAILABLE',
   'ITEM_UNAVAILABLE', 'OUT_OF_STOCK', 'EMPTY_ORDER', 'BRANCH_UNAVAILABLE', 'NOT_ALLOWED', 'STAFF_CANNOT_BOOK',
+  'OUTSIDE_HOURS',
 ] as const;
 export type KnownError = (typeof KNOWN_ERRORS)[number] | 'generic';
 

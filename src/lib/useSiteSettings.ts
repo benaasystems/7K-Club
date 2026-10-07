@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import { isConfigured, supabase } from './supabase';
 import type { SiteSettings } from './types';
 
+/** Seconds per home-page advertisement when the database has no value yet. */
+export const DEFAULT_AD_INTERVAL = 7;
+
 let cache: SiteSettings | null = null;
 let pending: Promise<SiteSettings | null> | null = null;
 const listeners = new Set<(s: SiteSettings | null) => void>();

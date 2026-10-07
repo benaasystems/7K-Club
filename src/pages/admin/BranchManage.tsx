@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Coffee, ExternalLink, Info, LayoutGrid, Pencil, Plus, ShoppingBag, Trash2 } from 'lucide-react';
 import { ResourceIcon } from '../../components/icons';
-import { Alert, Empty, Modal, PageLoader, Tabs } from '../../components/ui';
+import { Empty, Modal, PageLoader, Tabs, useConfirm } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
 import { supabase } from '../../lib/supabase';
 import type { Branch, Item, ItemKind, Resource } from '../../lib/types';
@@ -17,7 +17,6 @@ export default function BranchManage() {
   const [params, setParams] = useSearchParams();
   const tab = (['details', 'resources', 'menu', 'store'].includes(params.get('tab') ?? '') ? params.get('tab') : 'resources') as Tab;
   const [branch, setBranch] = useState<Branch | null | undefined>(undefined);
-  const [saved, setSaved] = useState(false);
   const Back = dir === 'rtl' ? ArrowRight : ArrowLeft;
 
   useEffect(() => {
@@ -55,15 +54,7 @@ export default function BranchManage() {
       <div className="mt-8">
         {tab === 'details' && (
           <div className="card p-5 sm:p-6">
-            {saved && <div className="mb-4"><Alert kind="success">{t('admin.saved')}</Alert></div>}
-            <BranchForm
-              key={branch.id}
-              branch={branch}
-              onSaved={(b) => {
-                setBranch(b);
-                setSaved(true);
-              }}
-            />
+            <BranchForm key={branch.id} branch={branch} onSaved={setBranch} />
           </div>
         )}
         {tab === 'resources' && <ResourcesAdmin branchId={branch.id} />}
@@ -78,6 +69,7 @@ export default function BranchManage() {
 
 function ResourcesAdmin({ branchId }: { branchId: string }) {
   const { t, lang } = useI18n();
+  const [confirm, confirmDialog] = useConfirm();
   const [list, setList] = useState<Resource[] | null>(null);
   const [editing, setEditing] = useState<Resource | 'new' | null>(null);
 
@@ -90,7 +82,7 @@ function ResourcesAdmin({ branchId }: { branchId: string }) {
   }, [load]);
 
   const remove = async (r: Resource) => {
-    if (!window.confirm(`${tr(r, 'name', lang)} — ${t('admin.confirmDelete')}`)) return;
+    if (!(await confirm({ title: t('admin.deleteNamed', { name: tr(r, 'name', lang) }), message: t('admin.confirmDelete'), confirmLabel: t('admin.delete'), danger: true }))) return;
     await supabase.from('resources').delete().eq('id', r.id);
     load();
   };
@@ -140,6 +132,7 @@ function ResourcesAdmin({ branchId }: { branchId: string }) {
           />
         )}
       </Modal>
+      {confirmDialog}
     </>
   );
 }
@@ -148,6 +141,7 @@ function ResourcesAdmin({ branchId }: { branchId: string }) {
 
 function ItemsAdmin({ branchId, kind }: { branchId: string; kind: ItemKind }) {
   const { t, lang } = useI18n();
+  const [confirm, confirmDialog] = useConfirm();
   const [list, setList] = useState<Item[] | null>(null);
   const [editing, setEditing] = useState<Item | 'new' | null>(null);
 
@@ -161,7 +155,7 @@ function ItemsAdmin({ branchId, kind }: { branchId: string; kind: ItemKind }) {
   }, [load]);
 
   const remove = async (i: Item) => {
-    if (!window.confirm(`${tr(i, 'name', lang)} — ${t('admin.confirmDelete')}`)) return;
+    if (!(await confirm({ title: t('admin.deleteNamed', { name: tr(i, 'name', lang) }), message: t('admin.confirmDelete'), confirmLabel: t('admin.delete'), danger: true }))) return;
     await supabase.from('items').delete().eq('id', i.id);
     load();
   };
@@ -214,6 +208,7 @@ function ItemsAdmin({ branchId, kind }: { branchId: string; kind: ItemKind }) {
           />
         )}
       </Modal>
+      {confirmDialog}
     </>
   );
 }

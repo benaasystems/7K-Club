@@ -35,9 +35,9 @@ Book online now — pay at the lounge',
    2);
 
 with b as (
-  insert into public.branches (name_en, name_ar, address_en, address_ar, hours_en, hours_ar, phone, sort_order)
+  insert into public.branches (name_en, name_ar, address_en, address_ar, hours_en, hours_ar, opens_at, closes_at, phone, sort_order)
   values ('7K New Cairo', '7K القاهرة الجديدة', 'New Cairo, Cairo', 'القاهرة الجديدة، القاهرة',
-          'Daily 12 PM – 4 AM', 'يومياً ١٢ ظهراً – ٤ فجراً', '0105 0009504', 1)
+          'Daily 12 PM – 4 AM', 'يومياً ١٢ ظهراً – ٤ فجراً', '12:00', '04:00', '0105 0009504', 1)
   returning id
 ),
 r as (

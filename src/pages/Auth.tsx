@@ -4,7 +4,7 @@ import { Mail, Phone, User } from 'lucide-react';
 import { PasswordInput, PasswordStrength, isPasswordValid } from '../components/PasswordInput';
 import { Segmented } from '../components/Select';
 import { Alert, Spinner } from '../components/ui';
-import { useAuth } from '../context/AuthProvider';
+import { OAUTH_LANG_KEY, useAuth } from '../context/AuthProvider';
 import { useI18n } from '../i18n/I18nProvider';
 import { supabase } from '../lib/supabase';
 import type { Lang } from '../lib/types';
@@ -51,6 +51,60 @@ export function IconInput({ icon, ...props }: { icon: ReactNode } & InputHTMLAtt
   );
 }
 
+function GoogleIcon() {
+  return (
+    <svg viewBox="0 0 48 48" className="h-5 w-5" aria-hidden>
+      <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z" />
+      <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z" />
+      <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z" />
+      <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z" />
+    </svg>
+  );
+}
+
+/** "Continue with Google" — signs in, or creates the account on first use. */
+function GoogleButton({ next }: { next: string }) {
+  const { t, lang } = useI18n();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const go = async () => {
+    setBusy(true);
+    setError('');
+    // A brand-new Google account has no language yet: remember the one they're browsing in.
+    try { localStorage.setItem(OAUTH_LANG_KEY, lang); } catch { /* storage unavailable */ }
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        // Back to the sign-in page, which forwards to `next` once the session is ready.
+        redirectTo: `${window.location.origin}/signin${next !== '/' ? `?next=${encodeURIComponent(next)}` : ''}`,
+        queryParams: { prompt: 'select_account' },
+      },
+    });
+    if (error) {
+      setBusy(false);
+      setError(/not enabled|unsupported provider/i.test(error.message) ? t('auth.googleOff') : error.message);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <button
+        type="button"
+        onClick={go}
+        disabled={busy}
+        className="btn w-full bg-white py-3 text-ink-950 shadow-sm hover:bg-white/90 active:scale-[0.98]"
+      >
+        {busy ? <Spinner className="h-5 w-5 text-ink-950" /> : <GoogleIcon />} {t('auth.google')}
+      </button>
+      {error && <Alert>{error}</Alert>}
+      <div className="flex items-center gap-3 text-xs uppercase tracking-wider text-white/35">
+        <span className="h-px flex-1 bg-white/10" /> {t('auth.or')} <span className="h-px flex-1 bg-white/10" />
+      </div>
+    </div>
+  );
+}
+
 function useRedirectWhenSignedIn() {
   const { session } = useAuth();
   const navigate = useNavigate();
@@ -92,7 +146,8 @@ export function SignIn() {
         </>
       }
     >
-      <form onSubmit={submit} className="space-y-4">
+      <GoogleButton next={next} />
+      <form onSubmit={submit} className="mt-4 space-y-4">
         <label className="block">
           <span className="label">{t('f.email')}</span>
           <IconInput icon={<Mail className="h-4 w-4" />} type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} dir="ltr" />
@@ -157,44 +212,47 @@ export function SignUp() {
       {done ? (
         <Alert kind="success">{t('auth.checkEmail')}</Alert>
       ) : (
-        <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2">
-          <label className="block">
-            <span className="label">{t('f.fullName')}</span>
-            <IconInput icon={<User className="h-4 w-4" />} required autoComplete="name" value={form.full_name} onChange={set('full_name')} />
-          </label>
-          <label className="block">
-            <span className="label">{t('f.phone')}</span>
-            <IconInput icon={<Phone className="h-4 w-4" />} type="tel" required autoComplete="tel" placeholder="01xxxxxxxxx" value={form.phone} onChange={set('phone')} dir="ltr" />
-          </label>
-          <label className="block sm:col-span-2">
-            <span className="label">{t('f.email')}</span>
-            <IconInput icon={<Mail className="h-4 w-4" />} type="email" required autoComplete="email" placeholder="name@example.com" value={form.email} onChange={set('email')} dir="ltr" />
-          </label>
-          <div className="sm:col-span-2">
+        <>
+          <GoogleButton next={next} />
+          <form onSubmit={submit} className="mt-4 grid gap-4 sm:grid-cols-2">
             <label className="block">
-              <span className="label">{t('f.password')}</span>
-              <PasswordInput required minLength={8} autoComplete="new-password" value={form.password} onChange={set('password')} />
+              <span className="label">{t('f.fullName')}</span>
+              <IconInput icon={<User className="h-4 w-4" />} required autoComplete="name" value={form.full_name} onChange={set('full_name')} />
             </label>
-            <PasswordStrength password={form.password} />
-          </div>
-          <div className="flex items-center justify-between gap-4 sm:col-span-2">
-            <span className="text-sm font-medium text-white/70">{t('f.language')}</span>
-            <div className="w-48">
-              <Segmented<Lang>
-                value={form.language}
-                onChange={(language) => setForm((f) => ({ ...f, language }))}
-                options={[
-                  { value: 'en', label: 'English' },
-                  { value: 'ar', label: 'العربية' },
-                ]}
-              />
+            <label className="block">
+              <span className="label">{t('f.phone')}</span>
+              <IconInput icon={<Phone className="h-4 w-4" />} type="tel" required autoComplete="tel" placeholder="01xxxxxxxxx" value={form.phone} onChange={set('phone')} dir="ltr" />
+            </label>
+            <label className="block sm:col-span-2">
+              <span className="label">{t('f.email')}</span>
+              <IconInput icon={<Mail className="h-4 w-4" />} type="email" required autoComplete="email" placeholder="name@example.com" value={form.email} onChange={set('email')} dir="ltr" />
+            </label>
+            <div className="sm:col-span-2">
+              <label className="block">
+                <span className="label">{t('f.password')}</span>
+                <PasswordInput required minLength={8} autoComplete="new-password" value={form.password} onChange={set('password')} />
+              </label>
+              <PasswordStrength password={form.password} />
             </div>
-          </div>
-          {error && <div className="sm:col-span-2"><Alert>{error}</Alert></div>}
-          <button className="btn-primary w-full py-3 sm:col-span-2" disabled={busy || !passwordOk}>
-            {busy && <Spinner className="h-4 w-4 text-ink-950" />} {t('nav.signup')}
-          </button>
-        </form>
+            <div className="flex items-center justify-between gap-4 sm:col-span-2">
+              <span className="text-sm font-medium text-white/70">{t('f.language')}</span>
+              <div className="w-48">
+                <Segmented<Lang>
+                  value={form.language}
+                  onChange={(language) => setForm((f) => ({ ...f, language }))}
+                  options={[
+                    { value: 'en', label: 'English' },
+                    { value: 'ar', label: 'العربية' },
+                  ]}
+                />
+              </div>
+            </div>
+            {error && <div className="sm:col-span-2"><Alert>{error}</Alert></div>}
+            <button className="btn-primary w-full py-3 sm:col-span-2" disabled={busy || !passwordOk}>
+              {busy && <Spinner className="h-4 w-4 text-ink-950" />} {t('nav.signup')}
+            </button>
+          </form>
+        </>
       )}
     </AuthShell>
   );

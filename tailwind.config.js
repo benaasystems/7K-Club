@@ -31,6 +31,8 @@ export default {
       animation: {
         marquee: 'marquee 40s linear infinite',
         'fade-up': 'fadeUp .5s ease both',
+        // `backwards`, not `both`: once finished it leaves no transform behind (which would trap fixed children)
+        'fade-up-fast': 'fadeUp .3s ease backwards',
       },
     },
   },

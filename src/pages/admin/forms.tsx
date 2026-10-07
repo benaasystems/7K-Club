@@ -2,9 +2,11 @@ import { useState, type FormEvent } from 'react';
 import { ResourceIcon } from '../../components/icons';
 import { ImageUpload } from '../../components/ImageUpload';
 import { Select } from '../../components/Select';
-import { Alert, Field, Spinner, Toggle } from '../../components/ui';
+import { Alert, Field, SavedNote, Spinner, Toggle, useFlash } from '../../components/ui';
 import { useI18n } from '../../i18n/I18nProvider';
+import { minutesToTime } from '../../lib/hours';
 import { supabase } from '../../lib/supabase';
+import { formatClock } from '../../lib/utils';
 import {
   MENU_CATEGORIES,
   RESOURCE_TYPES,
@@ -12,6 +14,7 @@ import {
   type Announcement,
   type Branch,
   type Item,
+  type Lang,
   type ItemKind,
   type Resource,
   type ResourceType,
@@ -31,10 +34,11 @@ function useSave() {
   return { saving, error, run };
 }
 
-function FormActions({ saving, onCancel }: { saving: boolean; onCancel?: () => void }) {
+function FormActions({ saving, saved = false, onCancel }: { saving: boolean; saved?: boolean; onCancel?: () => void }) {
   const { t } = useI18n();
   return (
-    <div className="flex justify-end gap-2 pt-2 sm:col-span-2">
+    <div className="flex items-center justify-end gap-3 pt-2 sm:col-span-2">
+      <SavedNote show={saved} />
       {onCancel && (
         <button type="button" className="btn-ghost" onClick={onCancel}>
           {t('admin.cancel')}
@@ -49,9 +53,18 @@ function FormActions({ saving, onCancel }: { saving: boolean; onCancel?: () => v
 
 /* ------------------------------------------------------------------ */
 
+/** Opening/closing time choices: every 30 minutes, plus "Not set". */
+function timeOptions(lang: Lang, notSet: string) {
+  return [
+    { value: '', label: notSet },
+    ...Array.from({ length: 48 }, (_, i) => ({ value: minutesToTime(i * 30), label: formatClock(i * 30, lang) })),
+  ];
+}
+
 export function BranchForm({ branch, onSaved, onCancel }: { branch?: Branch; onSaved: (b: Branch) => void; onCancel?: () => void }) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const { saving, error, run } = useSave();
+  const [hoursError, setHoursError] = useState(false);
   const [f, setF] = useState({
     name_en: branch?.name_en ?? '',
     name_ar: branch?.name_ar ?? '',
@@ -59,17 +72,27 @@ export function BranchForm({ branch, onSaved, onCancel }: { branch?: Branch; onS
     address_ar: branch?.address_ar ?? '',
     hours_en: branch?.hours_en ?? '',
     hours_ar: branch?.hours_ar ?? '',
+    opens_at: branch?.opens_at?.slice(0, 5) ?? '',
+    closes_at: branch?.closes_at?.slice(0, 5) ?? '',
     phone: branch?.phone ?? '',
     map_url: branch?.map_url ?? '',
     image_url: branch?.image_url ?? null,
     is_active: branch?.is_active ?? true,
     sort_order: branch?.sort_order ?? 0,
   });
-  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
+  const saved = useFlash();
+  // Any edit after saving means the "Saved ✓" no longer describes what's on screen.
+  const update = (patch: Partial<typeof f>) => {
+    setF({ ...f, ...patch });
+    saved.hide();
+    setHoursError(false);
+  };
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => update({ [k]: e.target.value });
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    const payload = { ...f, sort_order: Number(f.sort_order) || 0 };
+    if (!f.opens_at !== !f.closes_at) return setHoursError(true);
+    const payload = { ...f, opens_at: f.opens_at || null, closes_at: f.closes_at || null, sort_order: Number(f.sort_order) || 0 };
     run(
       async () => {
         const q = branch
@@ -79,7 +102,7 @@ export function BranchForm({ branch, onSaved, onCancel }: { branch?: Branch; onS
         if (!res.error) onSaved(res.data as Branch);
         return res;
       },
-      () => undefined,
+      saved.flash,
     );
   };
 
@@ -89,15 +112,21 @@ export function BranchForm({ branch, onSaved, onCancel }: { branch?: Branch; onS
       <Field label={t('f.nameAr')}><input className="input" dir="rtl" value={f.name_ar} onChange={set('name_ar')} /></Field>
       <Field label={t('f.addressEn')}><input className="input" value={f.address_en} onChange={set('address_en')} /></Field>
       <Field label={t('f.addressAr')}><input className="input" dir="rtl" value={f.address_ar} onChange={set('address_ar')} /></Field>
-      <Field label={t('f.hoursEn')}><input className="input" placeholder="Daily 12 PM – 4 AM" value={f.hours_en} onChange={set('hours_en')} /></Field>
-      <Field label={t('f.hoursAr')}><input className="input" dir="rtl" value={f.hours_ar} onChange={set('hours_ar')} /></Field>
+      <Field label={t('f.opensAt')}>
+        <Select<string> value={f.opens_at} onChange={(opens_at) => update({ opens_at })} options={timeOptions(lang, t('f.hoursNotSet'))} />
+      </Field>
+      <Field label={t('f.closesAt')}>
+        <Select<string> value={f.closes_at} onChange={(closes_at) => update({ closes_at })} options={timeOptions(lang, t('f.hoursNotSet'))} />
+      </Field>
+      <p className="-mt-2 text-xs text-white/45 sm:col-span-2">{t('f.hoursHint')}</p>
       <Field label={t('f.phone')}><input className="input" dir="ltr" value={f.phone} onChange={set('phone')} /></Field>
       <Field label={t('f.mapUrl')}><input className="input" dir="ltr" type="url" value={f.map_url} onChange={set('map_url')} /></Field>
-      <div className="sm:col-span-2"><ImageUpload folder="branches" value={f.image_url} onChange={(image_url) => setF({ ...f, image_url })} /></div>
+      <div className="sm:col-span-2"><ImageUpload folder="branches" value={f.image_url} onChange={(image_url) => update({ image_url })} /></div>
       <Field label={t('f.sortOrder')}><input className="input" type="number" value={f.sort_order} onChange={set('sort_order')} /></Field>
-      <div className="flex items-end pb-2"><Toggle checked={f.is_active} onChange={(is_active) => setF({ ...f, is_active })} label={t('f.visible')} /></div>
+      <div className="flex items-end pb-2"><Toggle checked={f.is_active} onChange={(is_active) => update({ is_active })} label={t('f.visible')} /></div>
+      {hoursError && <div className="sm:col-span-2"><Alert>{t('f.hoursBoth')}</Alert></div>}
       {error && <div className="sm:col-span-2"><Alert>{error}</Alert></div>}
-      <FormActions saving={saving} onCancel={onCancel} />
+      <FormActions saving={saving} saved={saved.on} onCancel={onCancel} />
     </form>
   );
 }

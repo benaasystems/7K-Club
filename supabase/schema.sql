@@ -158,6 +158,19 @@ begin
 exception when duplicate_object then null;
 end $$;
 
+-- Seconds each home-page advertisement stays on screen before the next one slides in
+alter table public.site_settings add column if not exists ad_interval int not null default 7;
+do $$
+begin
+  alter table public.site_settings add constraint site_settings_ad_interval_check check (ad_interval between 3 and 60);
+exception when duplicate_object then null;
+end $$;
+
+-- Opening hours (Egypt local time). closes_at < opens_at = closes after midnight; equal = open 24 hours;
+-- null = not set (no restriction). Bookings must fit inside these hours.
+alter table public.branches add column if not exists opens_at  time;
+alter table public.branches add column if not exists closes_at time;
+
 create index if not exists resources_branch_idx on public.resources(branch_id);
 create index if not exists items_branch_idx     on public.items(branch_id, kind);
 create index if not exists bookings_user_idx     on public.bookings(user_id);
@@ -198,12 +211,14 @@ $$;
 create or replace function public.handle_new_user() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
-  insert into public.profiles (id, email, full_name, phone, language)
+  -- Email sign-up sends full_name / phone / language; Google sends full_name or name, and avatar_url or picture.
+  insert into public.profiles (id, email, full_name, phone, avatar_url, language)
   values (
     new.id,
     new.email,
-    coalesce(new.raw_user_meta_data ->> 'full_name', ''),
+    coalesce(new.raw_user_meta_data ->> 'full_name', new.raw_user_meta_data ->> 'name', ''),
     coalesce(new.raw_user_meta_data ->> 'phone', ''),
+    coalesce(new.raw_user_meta_data ->> 'avatar_url', new.raw_user_meta_data ->> 'picture'),
     case when new.raw_user_meta_data ->> 'language' = 'ar' then 'ar' else 'en' end
   )
   on conflict (id) do nothing;
@@ -253,6 +268,9 @@ create or replace function public.bookings_before_insert() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare
   r public.resources;
+  br public.branches;
+  open_len  int;   -- minutes the branch is open per day
+  from_open int;   -- minutes between opening time and the booking start
 begin
   -- Reservations are for customers only: staff and admin accounts cannot book.
   if public.is_staff() then
@@ -260,9 +278,18 @@ begin
   end if;
 
   select * into r from public.resources where id = new.resource_id;
-  if r.id is null or not r.is_active
-     or not exists (select 1 from public.branches where id = r.branch_id and is_active) then
+  select * into br from public.branches where id = r.branch_id;
+  if r.id is null or not r.is_active or br.id is null or not br.is_active then
     raise exception 'RESOURCE_UNAVAILABLE';
+  end if;
+
+  -- The whole booking must fit inside one opening period (which may run past midnight).
+  if br.opens_at is not null and br.closes_at is not null and br.opens_at <> br.closes_at then
+    open_len  := (extract(epoch from (br.closes_at - br.opens_at))::int / 60 + 1440) % 1440;
+    from_open := (extract(epoch from ((new.start_at at time zone 'Africa/Cairo')::time - br.opens_at))::int / 60 + 1440) % 1440;
+    if from_open + ceil(extract(epoch from (new.end_at - new.start_at)) / 60) > open_len then
+      raise exception 'OUTSIDE_HOURS';
+    end if;
   end if;
 
   if auth.uid() is not null then
@@ -641,3 +668,6 @@ end $$;
 --  After you sign up on the website, make yourself admin:
 --    update public.profiles set role = 'admin' where email = 'you@example.com';
 -- =====================================================================
+
+-- Make the API see new columns right away (avoids "could not find column ... in the schema cache").
+notify pgrst, 'reload schema';

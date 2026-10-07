@@ -3,10 +3,11 @@ import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, ArrowRight, CalendarDays, Check, Clock, Coffee, MapPin, Navigation, Phone, ShoppingBag, Store, Users } from 'lucide-react';
 import { BookingModal } from '../components/BookingModal';
 import { ResourceIcon, resourceGradient } from '../components/icons';
-import { Empty, PageLoader, Tabs } from '../components/ui';
+import { Empty, PageLoader, Tabs, useConfirm } from '../components/ui';
 import { useAuth } from '../context/AuthProvider';
 import { useCart } from '../context/CartProvider';
 import { useI18n } from '../i18n/I18nProvider';
+import { hoursLabel } from '../lib/hours';
 import { supabase } from '../lib/supabase';
 import { MENU_CATEGORIES, RESOURCE_TYPES, STORE_CATEGORIES, type Branch, type Item, type Resource, type ResourceType } from '../lib/types';
 import { cn, money, tr } from '../lib/utils';
@@ -45,7 +46,7 @@ export default function BranchPage() {
     );
 
   const address = tr(branch, 'address', lang);
-  const hours = tr(branch, 'hours', lang);
+  const hours = hoursLabel(branch, lang, t);
 
   return (
     <div>
@@ -228,6 +229,7 @@ function MenuTab({ items }: { items: Item[] }) {
 
 function StoreTab({ items }: { items: Item[] }) {
   const { t, lang } = useI18n();
+  const [confirm, confirmDialog] = useConfirm();
   const cart = useCart();
   const { session, isStaff } = useAuth();
   const location = useLocation();
@@ -242,9 +244,9 @@ function StoreTab({ items }: { items: Item[] }) {
 
   if (!items.length) return <Empty icon={<ShoppingBag className="h-10 w-10" />} text={t('store.empty')} />;
 
-  const addToCart = (item: Item) => {
+  const addToCart = async (item: Item) => {
     if (!cart.add(item)) {
-      if (!window.confirm(t('store.otherBranch'))) return;
+      if (!(await confirm({ title: t('store.otherBranchTitle'), message: t('store.otherBranch'), confirmLabel: t('store.newCart') }))) return;
       cart.replaceWith(item);
     }
     setAdded(item.id);
@@ -252,6 +254,7 @@ function StoreTab({ items }: { items: Item[] }) {
 
   return (
     <div className="space-y-10">
+      {confirmDialog}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="flex items-center gap-2 text-sm text-white/55">
           <ShoppingBag className="h-4 w-4 text-gold-400" /> {isStaff ? t('err.STAFF_CANNOT_BOOK') : t('store.note')}

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { CalendarDays, CheckCircle2, Clock, MapPin, MessageSquare, ShoppingBag, Users } from 'lucide-react';
 import { ResourceIcon } from '../components/icons';
-import { Alert, Empty, PageLoader, StatusBadge, Tabs } from '../components/ui';
+import { Alert, Empty, PageLoader, StatusBadge, Tabs, useConfirm } from '../components/ui';
 import { useAuth } from '../context/AuthProvider';
 import { useI18n } from '../i18n/I18nProvider';
 import { supabase } from '../lib/supabase';
@@ -13,6 +13,7 @@ type Tab = 'bookings' | 'orders';
 
 export default function Reservations() {
   const { t, lang } = useI18n();
+  const [confirm, confirmDialog] = useConfirm();
   const { session } = useAuth();
   const [params, setParams] = useSearchParams();
   const tab: Tab = params.get('tab') === 'orders' ? 'orders' : 'bookings';
@@ -55,7 +56,7 @@ export default function Reservations() {
   }, [load, userId]);
 
   const cancel = async (table: 'bookings' | 'orders', id: string) => {
-    if (!window.confirm(t('res.cancelConfirm'))) return;
+    if (!(await confirm({ title: t(table === 'bookings' ? 'res.cancelConfirm' : 'res.cancelOrderConfirm'), message: t('res.cancelBody'), confirmLabel: t(table === 'bookings' ? 'res.cancelYes' : 'res.cancelOrderYes'), cancelLabel: t('res.keep'), danger: true }))) return;
     setError('');
     const { error } = await supabase.from(table).update({ status: 'cancelled' }).eq('id', id);
     if (error) setError(t(`err.${errorCode(error)}`));
@@ -67,6 +68,7 @@ export default function Reservations() {
 
   return (
     <div className="container-x max-w-4xl py-10 sm:py-14">
+      {confirmDialog}
       <h1 className="text-3xl font-extrabold">{t('res.title')}</h1>
       <p className="mt-1 text-white/55">{t('res.subtitle')}</p>
 

@@ -17,11 +17,12 @@ begin
 
   -- Branch ------------------------------------------------------------
   insert into public.branches
-    (name_en, name_ar, address_en, address_ar, hours_en, hours_ar, phone, map_url, sort_order)
+    (name_en, name_ar, address_en, address_ar, hours_en, hours_ar, opens_at, closes_at, phone, map_url, sort_order)
   values
     ('7K Sheikh Zayed', '7K الشيخ زايد',
      'Sheikh Zayed City, Giza', 'مدينة الشيخ زايد، الجيزة',
      'Daily 1 PM – 3 AM', 'يومياً ١ ظهراً – ٣ فجراً',
+     '13:00', '03:00',
      '0105 0009504',
      'https://www.google.com/maps/search/?api=1&query=Sheikh+Zayed+City+Giza',
      2)

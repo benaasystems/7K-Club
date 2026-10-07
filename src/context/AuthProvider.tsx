@@ -17,6 +17,9 @@ interface AuthValue {
 
 const AuthContext = createContext<AuthValue | null>(null);
 
+/** Language chosen before leaving for Google sign-in; applied if that sign-in created a new account. */
+export const OAUTH_LANG_KEY = '7k.oauthLang';
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { setLang } = useI18n();
   const [session, setSession] = useState<Session | null>(null);
@@ -49,7 +52,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setProfileLoading(true);
     loadProfile(userId)
-      .then((p) => p?.language && setLang(p.language))
+      .then(async (p) => {
+        let pending: string | null = null;
+        try {
+          pending = localStorage.getItem(OAUTH_LANG_KEY);
+          localStorage.removeItem(OAUTH_LANG_KEY);
+        } catch { /* storage unavailable */ }
+        // New account from Google (created in the last few minutes) → keep the language they browsed in.
+        const isNew = p && Date.now() - new Date(p.created_at).getTime() < 10 * 60 * 1000;
+        if (p && isNew && (pending === 'en' || pending === 'ar') && pending !== p.language) {
+          await supabase.from('profiles').update({ language: pending }).eq('id', p.id);
+          p = { ...p, language: pending };
+          setProfile(p);
+        }
+        if (p?.language) setLang(p.language);
+      })
       .finally(() => setProfileLoading(false));
   }, [userId, loadProfile, setLang]);
 

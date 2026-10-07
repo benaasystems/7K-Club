@@ -16,6 +16,7 @@ export default function Cart() {
   const navigate = useNavigate();
   const location = useLocation();
   const [branch, setBranch] = useState<Branch | null>(null);
+  const [stores, setStores] = useState<Branch[] | null>(null);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -24,6 +25,19 @@ export default function Cart() {
     if (!cart.branchId) return setBranch(null);
     supabase.from('branches').select('*').eq('id', cart.branchId).maybeSingle().then(({ data }) => setBranch(data as Branch));
   }, [cart.branchId]);
+
+  // Empty cart → offer each open branch's store directly (the store belongs to a branch).
+  const empty = cart.lines.length === 0;
+  useEffect(() => {
+    if (!empty || stores) return;
+    supabase
+      .from('branches')
+      .select('*')
+      .eq('is_active', true)
+      .order('sort_order')
+      .order('created_at')
+      .then(({ data }) => setStores((data as Branch[]) ?? []));
+  }, [empty, stores]);
 
   const place = async () => {
     if (!session) return navigate(`/signin?next=${encodeURIComponent(location.pathname)}`);
@@ -54,7 +68,23 @@ export default function Cart() {
 
       <div className="mt-8">
         {cart.lines.length === 0 ? (
-          <Empty icon={<ShoppingBag className="h-10 w-10" />} text={t('cart.empty')} action={<Link to="/#branches" className="btn-primary">{t('cart.browse')}</Link>} />
+          <Empty
+            icon={<ShoppingBag className="h-10 w-10" />}
+            text={t('cart.empty')}
+            action={
+              !stores ? (
+                <Spinner />
+              ) : stores.length === 0 ? null : (
+                <div className="flex flex-wrap justify-center gap-3">
+                  {stores.map((b) => (
+                    <Link key={b.id} to={`/branches/${b.id}?tab=store`} className="btn-primary">
+                      <Store className="h-4 w-4" /> {stores.length === 1 ? t('cart.browse') : t('cart.browseBranch', { name: tr(b, 'name', lang) })}
+                    </Link>
+                  ))}
+                </div>
+              )
+            }
+          />
         ) : (
           <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
             <ul className="space-y-3">

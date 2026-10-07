@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Building2, CalendarDays, Check, Clock, Mail, MapPin, MessageSquare, Phone, RefreshCw, ShoppingBag, Users, X } from 'lucide-react';
+import { DatePicker } from '../components/DatePicker';
 import { ResourceIcon } from '../components/icons';
 import { Select } from '../components/Select';
-import { Alert, Avatar, Empty, Spinner, StatusBadge, Tabs } from '../components/ui';
+import { Alert, Avatar, Empty, Field, Modal, Spinner, StatusBadge, Tabs } from '../components/ui';
 import { useAuth } from '../context/AuthProvider';
 import { useI18n } from '../i18n/I18nProvider';
 import { supabase } from '../lib/supabase';
 import type { Booking, Branch, Order, Status } from '../lib/types';
-import { cn, errorCode, formatDateTime, formatTime, money, tr } from '../lib/utils';
+import { clubDate, cn, errorCode, formatDateTime, formatTime, money, tr } from '../lib/utils';
 
 type Tab = 'bookings' | 'orders';
 type StatusFilter = Status | 'all';
@@ -64,8 +65,8 @@ export default function StaffDashboard() {
       po = po.eq('branch_id', branchId);
     }
     if (day) {
-      const from = new Date(`${day}T00:00`);
-      const to = new Date(from.getTime() + 24 * 3600 * 1000);
+      const from = clubDate(day, 0);
+      const to = clubDate(day, 24 * 60);
       bq = bq.gte('start_at', from.toISOString()).lt('start_at', to.toISOString());
       oq = oq.gte('created_at', from.toISOString()).lt('created_at', to.toISOString());
     }
@@ -88,19 +89,16 @@ export default function StaffDashboard() {
     };
   }, [load]);
 
-  const decide = async (table: Tab, id: string, next: 'accepted' | 'rejected') => {
-    let staff_note = '';
-    if (next === 'rejected') {
-      const reason = window.prompt(t('staff.rejectReason'));
-      if (reason === null) return;
-      staff_note = reason.trim();
-    }
+  const [rejecting, setRejecting] = useState<{ table: Tab; id: string } | null>(null);
+
+  const decide = async (table: Tab, id: string, next: 'accepted' | 'rejected', staff_note = '') => {
     setBusyId(id);
     setError('');
     const { error } = await supabase.from(table).update({ status: next, staff_note }).eq('id', id);
     setBusyId(null);
     if (error) setError(t(`err.${errorCode(error)}`));
     load();
+    return !error;
   };
 
   const statuses: StatusFilter[] = ['pending', 'accepted', 'rejected', 'cancelled', 'all'];
@@ -114,7 +112,7 @@ export default function StaffDashboard() {
           </button>
         )}
         {current !== 'rejected' && (
-          <button className="btn-danger btn-sm" disabled={busyId === id} onClick={() => decide(table, id, 'rejected')}>
+          <button className="btn-danger btn-sm" disabled={busyId === id} onClick={() => setRejecting({ table, id })}>
             <X className="h-3.5 w-3.5" /> {t('staff.reject')}
           </button>
         )}
@@ -181,7 +179,9 @@ export default function StaffDashboard() {
               }))}
             />
           </div>
-          <input type="date" className="input sm:w-44" value={day} onChange={(e) => setDay(e.target.value)} />
+          <div className="sm:w-48">
+            <DatePicker value={day} onChange={setDay} clearable placeholder={t('date.any')} />
+          </div>
         </div>
       </div>
 
@@ -250,7 +250,88 @@ export default function StaffDashboard() {
             ))
           ))}
       </div>
+
+      {rejecting && (
+        <RejectDialog
+          kind={rejecting.table}
+          customer={(rejecting.table === 'bookings' ? bookings : orders)?.find((x) => x.id === rejecting.id)?.customer?.full_name ?? ''}
+          busy={busyId === rejecting.id}
+          onCancel={() => setRejecting(null)}
+          onReject={async (note) => {
+            if (await decide(rejecting.table, rejecting.id, 'rejected', note)) setRejecting(null);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+/** Reject with an optional message the customer sees on their reservation / order. */
+function RejectDialog({
+  kind,
+  customer,
+  busy,
+  onCancel,
+  onReject,
+}: {
+  kind: Tab;
+  customer: string;
+  busy: boolean;
+  onCancel: () => void;
+  onReject: (note: string) => void;
+}) {
+  const { t } = useI18n();
+  const [note, setNote] = useState('');
+  const quick = (kind === 'bookings'
+    ? (['staff.quick.full', 'staff.quick.otherTime', 'staff.quick.event'] as const)
+    : (['staff.quick.stock', 'staff.quick.event'] as const)
+  ).map((k) => t(k));
+
+  return (
+    <Modal open onClose={onCancel} title={t(kind === 'bookings' ? 'staff.rejectTitle.booking' : 'staff.rejectTitle.order')}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onReject(note.trim());
+        }}
+        className="space-y-4"
+      >
+        {customer && <p className="-mt-2 text-sm text-white/60">{t('staff.rejectFor', { name: customer })}</p>}
+        <Field label={t('staff.rejectMessage')} hint={t('staff.rejectHint')}>
+          <textarea
+            autoFocus
+            className="input min-h-[96px]"
+            maxLength={300}
+            placeholder={t('staff.rejectPh')}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+        </Field>
+        <div className="flex flex-wrap gap-2">
+          {quick.map((q) => (
+            <button
+              key={q}
+              type="button"
+              onClick={() => setNote(q)}
+              className={cn(
+                'rounded-full border px-3 py-1.5 text-xs font-medium transition',
+                note === q ? 'border-gold-400 bg-gold-400/15 text-gold-300' : 'border-white/10 text-white/65 hover:border-white/25 hover:text-white',
+              )}
+            >
+              {q}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
+          <button type="button" className="btn-ghost" onClick={onCancel}>
+            {t('admin.cancel')}
+          </button>
+          <button className="btn-danger" disabled={busy}>
+            {busy ? <Spinner className="h-4 w-4 text-red-300" /> : <X className="h-4 w-4" />} {t('staff.reject')}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
