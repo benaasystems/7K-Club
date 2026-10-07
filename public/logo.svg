@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFE27A"/>
+      <stop offset=".55" stop-color="#FFD43B"/>
+      <stop offset="1" stop-color="#E0AC00"/>
+    </linearGradient>
+  </defs>
+  <circle cx="100" cy="100" r="99" fill="#0a0a0a"/>
+  <circle cx="100" cy="100" r="91" fill="none" stroke="#F5C211" stroke-opacity=".35" stroke-width="2"/>
+  <g transform="skewX(-10) translate(18 0)">
+    <text x="100" y="122" text-anchor="middle" font-family="'Arial Black','Segoe UI Black',Impact,sans-serif" font-size="96" font-weight="900" fill="url(#g)" stroke="#5c4300" stroke-width="2.5" paint-order="stroke" letter-spacing="-6">7K</text>
+  </g>
+  <text x="114" y="156" text-anchor="middle" font-family="'Arial Black','Segoe UI Black',Impact,sans-serif" font-size="30" font-weight="900" fill="url(#g)" letter-spacing="1">CLUB</text>
+</svg>
